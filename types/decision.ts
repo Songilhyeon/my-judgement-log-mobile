@@ -5,8 +5,14 @@ export type DecisionMeta = {
   reflection?: string;
   symbol?: string;
   action?: "buy" | "sell";
+  marketCondition?: MarketCondition;
+  entryPrice?: number;
+  exitPrice?: number;
+  returnRate?: number;
   [key: string]: string | number | boolean | null | undefined;
 };
+
+export type MarketCondition = "bull" | "bear" | "sideways" | "uncertain";
 
 export type Decision = {
   id: string;

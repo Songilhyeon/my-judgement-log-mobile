@@ -119,6 +119,15 @@ export default function RootLayout() {
             headerLeft: () => <HeaderBackWithText />,
           }}
         />
+
+        {/* 주간 리포트 */}
+        <Stack.Screen
+          name="weekly-report"
+          options={{
+            title: "주간 리포트",
+            headerLeft: () => <HeaderBackWithText />,
+          }}
+        />
       </Stack>
 
       <StatusBar style="auto" />

@@ -4,6 +4,7 @@ import type {
   AnalysisSummaryResponse,
 } from "@/types/analysis";
 import type { CreateDecisionPayload, Decision } from "@/types/decision";
+import type { WeeklyReportResponse } from "@/types/weekly-report";
 
 // ✅ RN(실기기)에서는 localhost가 안 먹는 경우가 많아서 env 기반 추천
 // - Expo: EXPO_PUBLIC_API_URL 사용 권장
@@ -52,6 +53,7 @@ export async function getDecisions(): Promise<Decision[]> {
 export type UpdateDecisionResultPayload = {
   result: "pending" | "positive" | "negative" | "neutral";
   confidence: number;
+  meta?: Decision["meta"];
 };
 
 export async function updateDecisionResult(
@@ -120,4 +122,15 @@ export async function fetchAnalysisSummary(params?: {
 
   // ✅ request() 사용 -> x-user-id 자동 포함 + 에러 처리도 동일
   return request<AnalysisSummaryResponse>(path, { method: "GET" });
+}
+
+export async function fetchWeeklyReport(params?: {
+  weekStart?: string;
+}): Promise<WeeklyReportResponse> {
+  const qs = new URLSearchParams();
+  if (params?.weekStart) qs.set("weekStart", params.weekStart);
+
+  const path = `/api/analysis/weekly${qs.toString() ? `?${qs}` : ""}`;
+
+  return request<WeeklyReportResponse>(path, { method: "GET" });
 }

@@ -1,5 +1,5 @@
 // app/index.tsx
-import { router, useFocusEffect } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -49,6 +49,7 @@ function includesText(v: unknown, q: string) {
 }
 
 export default function HomeScreen() {
+  const params = useLocalSearchParams<{ focusId?: string; prompt?: string }>();
   const [all, setAll] = useState<Decision[]>([]);
   const [pending, setPending] = useState<Decision[]>([]);
   const [filter, setFilter] = useState<CategoryFilter>("all");
@@ -59,6 +60,7 @@ export default function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [hideOutcomePrompt, setHideOutcomePrompt] = useState(false);
 
   const load = useCallback(async () => {
     setLoadError(null);
@@ -110,10 +112,13 @@ export default function HomeScreen() {
     return oldest;
   }, [pending]);
 
-  const maxPendingDays = useMemo(() => {
-    if (!oldestPending) return 0;
-    return daysFromCreated(oldestPending.createdAt);
-  }, [oldestPending]);
+  const focusDecision = useMemo(() => {
+    if (!params.focusId) return null;
+    return all.find((d) => d.id === params.focusId) ?? null;
+  }, [all, params.focusId]);
+
+  const shouldShowOutcomePrompt =
+    params.prompt === "outcome" && !!focusDecision && !hideOutcomePrompt;
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -165,6 +170,10 @@ export default function HomeScreen() {
     router.push("/analysis");
   };
 
+  const openWeeklyReport = () => {
+    router.push("/weekly-report");
+  };
+
   // pending → outcome / 완료 → detail
   const openItem = (d: Decision) => {
     if (d.result === "pending") {
@@ -188,6 +197,14 @@ export default function HomeScreen() {
       params: { id: oldestPending.id, categoryId: oldestPending.categoryId },
     });
   }, [oldestPending]);
+
+  const openFocusOutcome = useCallback(() => {
+    if (!focusDecision) return;
+    router.push({
+      pathname: "/outcome",
+      params: { id: focusDecision.id, categoryId: focusDecision.categoryId },
+    });
+  }, [focusDecision]);
 
   const clearQuery = () => setQuery("");
 
@@ -260,14 +277,11 @@ export default function HomeScreen() {
     <View style={styles.container}>
       {/* 상단 헤더 */}
       <View style={styles.topBar}>
-        <View>
-          <Text style={styles.sub}>
-            미완료 <Text style={styles.subStrong}>{pendingCount}</Text> · 완료{" "}
-            <Text style={styles.subStrong}>{completedCount}</Text>
-          </Text>
-        </View>
+        <View style={styles.topButtons}>
+          <Pressable style={styles.secondaryBtn} onPress={openWeeklyReport}>
+            <Text style={styles.secondaryBtnText}>주간 리포트</Text>
+          </Pressable>
 
-        <View style={{ flexDirection: "row", gap: 10 }}>
           <Pressable style={styles.secondaryBtn} onPress={openAnalysis}>
             <Text style={styles.secondaryBtnText}>분석</Text>
           </Pressable>
@@ -276,9 +290,14 @@ export default function HomeScreen() {
             <Text style={styles.primaryBtnText}>기록하기</Text>
           </Pressable>
         </View>
+
+        <Text style={styles.sub}>
+          미완료 <Text style={styles.subStrong}>{pendingCount}</Text> · 완료{" "}
+          <Text style={styles.subStrong}>{completedCount}</Text>
+        </Text>
       </View>
 
-      {/* 검색 + 토글 */}
+      {/* 검색 */}
       <View style={styles.searchWrap}>
         <View style={styles.searchInputWrap}>
           <TextInput
@@ -300,21 +319,41 @@ export default function HomeScreen() {
             </Pressable>
           )}
         </View>
+      </View>
 
-        <Pressable
-          style={[styles.toggleChip, onlyPending && styles.toggleChipActive]}
-          onPress={() => setOnlyPending((v) => !v)}
-          hitSlop={10}
-        >
-          <Text
-            style={[
-              styles.toggleChipText,
-              onlyPending && styles.toggleChipTextActive,
-            ]}
-          >
-            미완료만
+      {/* 미완료 섹션 */}
+      <View style={styles.pendingSection}>
+        <View style={styles.pendingSectionRow}>
+          <Text style={styles.pendingSectionTitle}>
+            미완료 <Text style={styles.pendingSectionStrong}>{pendingCount}</Text>
           </Text>
-        </Pressable>
+          <Pressable
+            style={[
+              styles.pendingSectionBtn,
+              onlyPending && styles.pendingSectionBtnActive,
+            ]}
+            onPress={() => setOnlyPending((v) => !v)}
+          >
+            <Text
+              style={[
+                styles.pendingSectionBtnText,
+                onlyPending && styles.pendingSectionBtnTextActive,
+              ]}
+            >
+              미완료만 보기
+            </Text>
+          </Pressable>
+        </View>
+        {!!oldestPending && (
+          <Pressable
+            style={styles.pendingSectionCta}
+            onPress={openOldestPending}
+          >
+            <Text style={styles.pendingSectionCtaText}>
+              가장 오래된 미완료 결과 입력하기 →
+            </Text>
+          </Pressable>
+        )}
       </View>
 
       {/* 로드 에러 배너 */}
@@ -325,30 +364,26 @@ export default function HomeScreen() {
         </Pressable>
       )}
 
-      {/* 상단 pending 배너 */}
-      {oldestPending && (
-        <Pressable style={styles.pendingBanner} onPress={openOldestPending}>
-          <View style={styles.pendingBannerTop}>
-            <Text style={styles.pendingBannerTitle}>
-              ⏰ 아직 결과를 기다리는 판단이 있어요
-            </Text>
-            <View style={styles.pendingBannerPill}>
-              <Text style={styles.pendingBannerPillText}>
-                D+{maxPendingDays}
-              </Text>
-            </View>
+      {/* 결과 입력 유도 배너 */}
+      {shouldShowOutcomePrompt && (
+        <View style={styles.infoBanner}>
+          <View style={styles.infoBannerTop}>
+            <Text style={styles.infoBannerTitle}>결과를 입력해보세요</Text>
+            <Pressable
+              style={styles.infoBannerClose}
+              onPress={() => setHideOutcomePrompt(true)}
+              hitSlop={10}
+            >
+              <Text style={styles.infoBannerCloseText}>✕</Text>
+            </Pressable>
           </View>
-
-          <Text style={styles.pendingBannerSub}>
-            {pendingCount}건 · 가장 오래된 미완료:{" "}
-            {getCategory(oldestPending.categoryId)?.name ??
-              oldestPending.categoryId}
-            {" · "}
-            {formatDate(oldestPending.createdAt)}
+          <Text style={styles.infoBannerSub}>
+            방금 기록한 판단을 완료하면 통계에 반영돼요.
           </Text>
-
-          <Text style={styles.pendingBannerCta}>결과 입력하러 가기 →</Text>
-        </Pressable>
+          <Pressable style={styles.infoBannerCta} onPress={openFocusOutcome}>
+            <Text style={styles.infoBannerCtaText}>결과 입력하기</Text>
+          </Pressable>
+        </View>
       )}
 
       {/* 카테고리 필터 */}
@@ -418,12 +453,14 @@ const styles = StyleSheet.create({
   topBar: {
     paddingTop: 14,
     paddingBottom: 12,
-    flexDirection: "row",
-    alignItems: "flex-end",
-    justifyContent: "space-between",
-    gap: 12,
+    gap: 8,
   },
-  sub: { color: "#cbd5f5", marginTop: 4, fontWeight: "700" },
+  topButtons: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  sub: { color: "#cbd5f5", marginTop: 2, fontWeight: "700" },
   subStrong: { color: "white" },
 
   primaryBtn: {
@@ -431,6 +468,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 12,
+    flex: 1,
+    alignItems: "center",
   },
   primaryBtnText: { color: "white", fontWeight: "900" },
 
@@ -441,6 +480,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 12,
+    flex: 1,
+    alignItems: "center",
   },
   secondaryBtnText: { color: "#cbd5f5", fontWeight: "900" },
 
@@ -478,18 +519,6 @@ const styles = StyleSheet.create({
   },
   clearBtnText: { color: "#cbd5f5", fontWeight: "900" },
 
-  toggleChip: {
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "#334155",
-    backgroundColor: "#0b1220",
-  },
-  toggleChipActive: { backgroundColor: "#2563eb", borderColor: "#2563eb" },
-  toggleChipText: { color: "#cbd5f5", fontWeight: "900" },
-  toggleChipTextActive: { color: "white" },
-
   errorBanner: {
     borderRadius: 14,
     borderWidth: 1,
@@ -501,32 +530,75 @@ const styles = StyleSheet.create({
   errorBannerText: { color: "#fecaca", fontWeight: "900" },
   errorBannerCta: { color: "#fca5a5", fontWeight: "900", marginTop: 6 },
 
-  pendingBanner: {
+  pendingSection: {
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: "#1e293b",
+    borderColor: "#0b1220",
     backgroundColor: "#0b1220",
-    padding: 14,
+    padding: 12,
     marginBottom: 10,
   },
-  pendingBannerTop: {
+  pendingSectionRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 10,
   },
-  pendingBannerTitle: { color: "white", fontWeight: "900" },
-  pendingBannerSub: { color: "#cbd5f5", marginTop: 8, fontWeight: "700" },
-  pendingBannerCta: { color: "#60a5fa", marginTop: 10, fontWeight: "900" },
-  pendingBannerPill: {
-    paddingVertical: 4,
+  pendingSectionTitle: { color: "#cbd5f5", fontWeight: "900" },
+  pendingSectionStrong: { color: "white" },
+  pendingSectionBtn: {
+    paddingVertical: 6,
     paddingHorizontal: 10,
     borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#334155",
+    backgroundColor: "#0b1220",
+  },
+  pendingSectionBtnActive: {
+    backgroundColor: "#2563eb",
+    borderColor: "#2563eb",
+  },
+  pendingSectionBtnText: { color: "#cbd5f5", fontWeight: "900" },
+  pendingSectionBtnTextActive: { color: "white" },
+  pendingSectionCta: { marginTop: 8 },
+  pendingSectionCtaText: { color: "#60a5fa", fontWeight: "900" },
+
+  infoBanner: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#1e3a8a",
+    backgroundColor: "#0b1220",
+    padding: 14,
+    marginBottom: 10,
+  },
+  infoBannerTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  infoBannerTitle: { color: "white", fontWeight: "900" },
+  infoBannerSub: { color: "#cbd5f5", marginTop: 8, fontWeight: "700" },
+  infoBannerCta: {
+    marginTop: 10,
+    alignSelf: "flex-start",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: "#2563eb",
+  },
+  infoBannerCtaText: { color: "white", fontWeight: "900" },
+  infoBannerClose: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
     backgroundColor: "#111827",
     borderWidth: 1,
     borderColor: "#334155",
   },
-  pendingBannerPillText: { color: "white", fontWeight: "900", fontSize: 12 },
+  infoBannerCloseText: { color: "#cbd5f5", fontWeight: "900" },
 
   chipsWrap: {
     flexDirection: "row",

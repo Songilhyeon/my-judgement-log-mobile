@@ -1,4 +1,5 @@
 // app/detail.tsx
+import { MARKET_CONDITIONS } from "@/constants/invest";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -20,7 +21,7 @@ import {
   updateDecisionResult,
 } from "@/lib/api";
 import { CATEGORIES, getCategory, getResultLabels } from "@/lib/categories";
-import type { Decision, DecisionMeta } from "@/types/decision";
+import type { Decision, DecisionMeta, MarketCondition } from "@/types/decision";
 
 type AnyResult = "pending" | "positive" | "negative" | "neutral";
 
@@ -30,6 +31,23 @@ const parseTags = (raw: string) => {
     .map((t) => t.trim())
     .filter(Boolean);
   return Array.from(new Set(arr));
+};
+
+const parseNumberInput = (value: string) => {
+  const normalized = value.replace(/,/g, "").trim();
+  const num = Number.parseFloat(normalized);
+  return Number.isFinite(num) ? num : null;
+};
+
+const calcReturnRate = (
+  entry: number,
+  exit: number,
+  action: "buy" | "sell"
+) => {
+  if (entry <= 0) return null;
+  const raw =
+    action === "sell" ? (entry - exit) / entry : (exit - entry) / entry;
+  return Math.round(raw * 1000) / 10;
 };
 
 function formatDateTime(iso?: string | null) {
@@ -91,6 +109,10 @@ export default function DetailScreen() {
   const isInvest = categoryId === "invest";
   const [symbol, setSymbol] = useState("");
   const [action, setAction] = useState<"buy" | "sell">("buy");
+  const [marketCondition, setMarketCondition] =
+    useState<MarketCondition>("uncertain");
+  const [entryPrice, setEntryPrice] = useState("");
+  const [exitPrice, setExitPrice] = useState("");
 
   // ✅ Alert 대신 커스텀 Confirm 모달 (Alert 미표시 문제 완전 회피)
   const [dialog, setDialog] = useState<DialogState>(null);
@@ -144,6 +166,18 @@ export default function DetailScreen() {
       const m = d.meta ?? {};
       setSymbol(typeof m.symbol === "string" ? m.symbol : "");
       setAction(m.action === "sell" ? "sell" : "buy");
+      setMarketCondition(
+        m.marketCondition === "bull" ||
+          m.marketCondition === "bear" ||
+          m.marketCondition === "sideways" ||
+          m.marketCondition === "uncertain"
+          ? m.marketCondition
+          : "uncertain"
+      );
+      setEntryPrice(
+        typeof m.entryPrice === "number" ? String(m.entryPrice) : ""
+      );
+      setExitPrice(typeof m.exitPrice === "number" ? String(m.exitPrice) : "");
     } catch {
       openDialog({ title: "오류", message: "상세를 불러오지 못했습니다." });
       router.replace("/");
@@ -164,6 +198,9 @@ export default function DetailScreen() {
     if (categoryId !== "invest") {
       setSymbol("");
       setAction("buy");
+      setMarketCondition("uncertain");
+      setEntryPrice("");
+      setExitPrice("");
     }
   }, [categoryId]);
 
@@ -181,9 +218,31 @@ export default function DetailScreen() {
       });
       return;
     }
+    if (isInvest && !entryPrice.trim()) {
+      openDialog({
+        title: "입력 필요",
+        message: "투자 카테고리에서는 매수가가 필요해요.",
+      });
+      return;
+    }
+
+    const entryValue = isInvest ? parseNumberInput(entryPrice) : null;
+    const exitValue = isInvest ? parseNumberInput(exitPrice) : null;
+    if (isInvest && entryValue === null) {
+      openDialog({
+        title: "입력 필요",
+        message: "매수가가 올바르지 않아요.",
+      });
+      return;
+    }
 
     try {
       setSaving(true);
+
+      const nextReturnRate =
+        isInvest && entryValue !== null && exitValue !== null
+          ? calcReturnRate(entryValue, exitValue, action)
+          : null;
 
       const updated = await updateDecision(id, {
         categoryId,
@@ -196,6 +255,10 @@ export default function DetailScreen() {
               ...(decision?.meta ?? {}),
               symbol: symbol.trim().toUpperCase(),
               action,
+              marketCondition,
+              entryPrice: entryValue ?? undefined,
+              exitPrice: exitValue ?? undefined,
+              returnRate: nextReturnRate ?? undefined,
             }
           : undefined, // ✅ nonInvest면 meta 제거
       });
@@ -206,9 +269,6 @@ export default function DetailScreen() {
       setResult(updated.result);
       setConfidence(updated.confidence);
       showToast("저장 완료!");
-      setTimeout(() => {
-        goBack();
-      }, waitTime);
       // openDialog({ title: "저장 완료", message: "수정 내용을 저장했어요." });
     } catch {
       openDialog({ title: "오류", message: "저장에 실패했습니다." });
@@ -292,6 +352,13 @@ export default function DetailScreen() {
       : result === "negative"
       ? labels.negative
       : labels.neutral;
+
+  const entryValue = parseNumberInput(entryPrice);
+  const exitValue = parseNumberInput(exitPrice);
+  const computedReturnRate =
+    isInvest && entryValue !== null && exitValue !== null
+      ? calcReturnRate(entryValue, exitValue, action)
+      : null;
 
   return (
     <View style={{ flex: 1 }}>
@@ -449,6 +516,58 @@ export default function DetailScreen() {
               autoCapitalize="characters"
             />
 
+            <Text style={[styles.label, { marginTop: 12 }]}>
+              시장 상황 (우선)
+            </Text>
+            <View style={styles.chipsWrap}>
+              {MARKET_CONDITIONS.map((c) => {
+                const active = marketCondition === c.id;
+                return (
+                  <Pressable
+                    key={c.id}
+                    style={[styles.chip, active && styles.chipActive]}
+                    onPress={() => setMarketCondition(c.id)}
+                    disabled={saving}
+                  >
+                    <Text
+                      style={[styles.chipText, active && styles.chipTextActive]}
+                    >
+                      {c.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            <Text style={[styles.label, { marginTop: 8 }]}>매수가</Text>
+            <TextInput
+              value={entryPrice}
+              onChangeText={setEntryPrice}
+              placeholder="예: 72000"
+              placeholderTextColor="#94a3b8"
+              style={styles.input}
+              editable={!saving}
+              keyboardType="numeric"
+            />
+
+            <Text style={[styles.label, { marginTop: 10 }]}>매도가</Text>
+            <TextInput
+              value={exitPrice}
+              onChangeText={setExitPrice}
+              placeholder="예: 76000"
+              placeholderTextColor="#94a3b8"
+              style={styles.input}
+              editable={!saving}
+              keyboardType="numeric"
+            />
+
+            {computedReturnRate !== null && (
+              <Text style={[styles.muted, { marginTop: 8 }]}>
+                수익률 {computedReturnRate > 0 ? "+" : ""}
+                {computedReturnRate}%
+              </Text>
+            )}
+
             <View style={{ flexDirection: "row", gap: 12, marginTop: 10 }}>
               <Pressable
                 style={[styles.choice, action === "buy" && styles.choiceActive]}
@@ -501,7 +620,9 @@ export default function DetailScreen() {
         {/* 회고 미리보기 */}
         <Pressable
           style={styles.reflectionCard}
-          onPress={() => router.push({ pathname: "/review", params: { id } })}
+          onPress={() =>
+            router.push({ pathname: "/review", params: { id, from: "detail" } })
+          }
           hitSlop={10}
         >
           <View style={styles.reflectionTop}>

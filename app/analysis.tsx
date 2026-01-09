@@ -120,12 +120,9 @@ export default function AnalysisScreen() {
     setRecentLimit(DEFAULT_RECENT_LIMIT);
   }, []);
 
-  const selectedCategorySummary = useMemo(() => {
-    if (!selectedCategoryId) return null;
-    return (data?.byCategory ?? []).find(
-      (c) => c.categoryId === selectedCategoryId
-    );
-  }, [data, selectedCategoryId]);
+  const selectedCategoryName = useMemo(() => {
+    return selectedCategoryId ? getCategoryName(selectedCategoryId) : "전체";
+  }, [selectedCategoryId]);
 
   const filterLabel = useMemo(() => {
     const parts: string[] = [];
@@ -184,15 +181,7 @@ export default function AnalysisScreen() {
     });
   }, [data]);
 
-  const showInvestAction = useMemo(() => {
-    if (selectedCategoryId && selectedCategoryId !== "invest") return false;
-
-    // invest 선택이면 0이어도 섹션은 보여주기
-    if (selectedCategoryId === "invest") return true;
-
-    // 전체일 때는 데이터 있을 때만
-    return actionRows.some((r) => r.total > 0);
-  }, [selectedCategoryId, actionRows]);
+  const showInvestAction = selectedCategoryId === "invest";
 
   const confidenceRows = useMemo(() => {
     const arr = data?.confidenceStats ?? [];
@@ -203,13 +192,6 @@ export default function AnalysisScreen() {
         positiveRate: safeNumber((x as any)?.positiveRate),
       }))
       .sort((a, b) => a.confidence - b.confidence);
-  }, [data]);
-
-  const categoryRows = useMemo(() => {
-    const arr = data?.byCategory ?? [];
-    return [...arr]
-      .sort((a, b) => safeNumber(b.total) - safeNumber(a.total))
-      .slice(0, 8);
   }, [data]);
 
   const topTags = useMemo(() => {
@@ -278,6 +260,48 @@ export default function AnalysisScreen() {
         })}
       </View>
 
+      {/* 카테고리 선택 */}
+      <View style={styles.categoryRow}>
+        <Pressable
+          style={[
+            styles.categoryChip,
+            !selectedCategoryId && styles.categoryChipActive,
+          ]}
+          onPress={() => setSelectedCategoryId(null)}
+          hitSlop={10}
+        >
+          <Text
+            style={[
+              styles.categoryChipText,
+              !selectedCategoryId && styles.categoryChipTextActive,
+            ]}
+          >
+            전체
+          </Text>
+        </Pressable>
+
+        {CATEGORIES.map((c) => {
+          const active = selectedCategoryId === c.id;
+          return (
+            <Pressable
+              key={c.id}
+              style={[styles.categoryChip, active && styles.categoryChipActive]}
+              onPress={() => setSelectedCategoryId(c.id)}
+              hitSlop={10}
+            >
+              <Text
+                style={[
+                  styles.categoryChipText,
+                  active && styles.categoryChipTextActive,
+                ]}
+              >
+                {c.name}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
       {/* 필터 상태 바 (단 1개만 유지) */}
       <View style={styles.filterBar}>
         <Text style={styles.filterBarText} numberOfLines={2}>
@@ -293,54 +317,9 @@ export default function AnalysisScreen() {
         </Pressable>
       </View>
 
-      {/* 선택된 카테고리 요약 */}
-      {selectedCategoryId && selectedCategorySummary && (
-        <View style={styles.section}>
-          <View style={styles.sectionHeaderRow}>
-            <Text style={styles.sectionTitle}>
-              {getCategoryName(selectedCategoryId)} 분석
-            </Text>
-
-            <Pressable onPress={() => setSelectedCategoryId(null)} hitSlop={10}>
-              <Text style={styles.sectionHeaderAction}>전체 보기</Text>
-            </Pressable>
-          </View>
-
-          <View style={styles.rowCard}>
-            <Text style={styles.rowSub}>
-              총 {safeNumber(selectedCategorySummary.total)}건
-            </Text>
-
-            <View style={[styles.grid3, { marginTop: 10 }]}>
-              <View style={styles.miniCard}>
-                <Text style={styles.miniLabel}>승률</Text>
-                <Text style={styles.miniValue}>
-                  {percent(selectedCategorySummary.positiveRate)}
-                </Text>
-              </View>
-
-              <View style={styles.miniCard}>
-                <Text style={styles.miniLabel}>긍정</Text>
-                <Text style={styles.miniValue}>
-                  {safeNumber(selectedCategorySummary.resultCounts?.positive)}
-                </Text>
-              </View>
-
-              <View style={styles.miniCard}>
-                <Text style={styles.miniLabel}>부정</Text>
-                <Text style={styles.miniValue}>
-                  {safeNumber(selectedCategorySummary.resultCounts?.negative)}
-                </Text>
-              </View>
-            </View>
-
-            <Text style={[styles.rowSub, { marginTop: 10 }]}>
-              평균 확신도{" "}
-              {safeNumber(selectedCategorySummary.avgConfidenceCompleted)}
-            </Text>
-          </View>
-        </View>
-      )}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>{selectedCategoryName} 요약</Text>
+      </View>
 
       {/* Summary */}
       <View style={styles.grid2}>
@@ -459,53 +438,6 @@ export default function AnalysisScreen() {
           </View>
         )}
       </View>
-
-      {/* Category (선택된 카테고리 없을 때만) */}
-      {!selectedCategoryId && (
-        <View style={styles.section}>
-          <View style={styles.sectionHeaderRow}>
-            <Text style={styles.sectionTitle}>카테고리별(상위)</Text>
-          </View>
-
-          {categoryRows.length === 0 ? (
-            <View style={styles.emptyBox}>
-              <Text style={styles.muted}>카테고리 통계가 아직 없어요.</Text>
-            </View>
-          ) : (
-            <View style={{ gap: 10 }}>
-              {categoryRows.map((c) => (
-                <Pressable
-                  key={c.categoryId}
-                  style={styles.rowCard}
-                  onPress={() => setSelectedCategoryId(c.categoryId)}
-                >
-                  <View style={styles.rowCardTop}>
-                    <View style={styles.catChip}>
-                      <Text style={styles.catChipText}>
-                        {getCategoryName(c.categoryId)}
-                      </Text>
-                    </View>
-                    <View style={styles.pill}>
-                      <Text style={styles.pillText}>
-                        {percent(c.positiveRate)}
-                      </Text>
-                    </View>
-                  </View>
-
-                  <Text style={styles.rowSub}>
-                    {safeNumber(c.total)}건 · 긍정{" "}
-                    {safeNumber(c.resultCounts?.positive)} / 부정{" "}
-                    {safeNumber(c.resultCounts?.negative)} / 중립{" "}
-                    {safeNumber(c.resultCounts?.neutral)}
-                    {" · "}
-                    평균 확신도 {safeNumber(c.avgConfidenceCompleted)}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-          )}
-        </View>
-      )}
 
       {/* Top tags */}
       <View style={styles.section}>
@@ -837,6 +769,26 @@ const styles = StyleSheet.create({
     backgroundColor: "#111827",
   },
   filterClearText: { color: "#cbd5f5", fontWeight: "900" },
+
+  // category chips
+  categoryRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 10,
+    marginBottom: 6,
+    flexWrap: "wrap",
+  },
+  categoryChip: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#334155",
+    backgroundColor: "#0b1220",
+  },
+  categoryChipActive: { backgroundColor: "#111827", borderColor: "#cbd5f5" },
+  categoryChipText: { color: "#94a3b8", fontWeight: "900" },
+  categoryChipTextActive: { color: "#cbd5f5" },
 
   // tags
   tagWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },

@@ -94,7 +94,10 @@ function getReflection(meta?: DecisionMeta): string {
 }
 
 export default function ReviewScreen() {
-  const { id } = useLocalSearchParams<{ id?: string }>();
+  const { id, from } = useLocalSearchParams<{
+    id?: string;
+    from?: "detail" | "outcome" | "unknown";
+  }>();
 
   const [target, setTarget] = useState<Decision | null>(null);
   const [all, setAll] = useState<Decision[]>([]);
@@ -190,7 +193,15 @@ export default function ReviewScreen() {
 
   const goDetail = () => {
     if (!target) return;
-    router.push({ pathname: "/detail", params: { id: target.id } });
+    if (from === "detail" && router.canDismiss()) {
+      router.dismiss();
+      return;
+    }
+    if (from === "outcome") {
+      router.replace("/");
+      return;
+    }
+    router.replace({ pathname: "/detail", params: { id: target.id } });
   };
 
   const saveReflection = async () => {
@@ -221,6 +232,14 @@ export default function ReviewScreen() {
       showSuccess("한 줄 회고를 저장했어요.");
 
       setTimeout(() => {
+        if (from === "detail" && router.canDismiss()) {
+          router.dismiss();
+          return;
+        }
+        if (from === "outcome") {
+          router.replace("/");
+          return;
+        }
         router.replace({ pathname: "/detail", params: { id: target.id } });
       }, 600);
     } catch (e) {
@@ -356,7 +375,9 @@ export default function ReviewScreen() {
             onPress={goDetail}
             disabled={saving}
           >
-            <Text style={styles.secondaryBtnText}>상세 보기</Text>
+            <Text style={styles.secondaryBtnText}>
+              {from === "outcome" ? "홈으로" : "상세 보기"}
+            </Text>
           </Pressable>
 
           <Pressable
